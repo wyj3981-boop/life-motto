@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>고민 컴파일러</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans+KR:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --title: #3c3c3c;
+    --activity: #333333;
+    --sidebar: #252526;
+    --editor: #1e1e1e;
+    --tabs: #252526;
+    --tab-off: #2d2d2d;
+    --panel: #1e1e1e;
+    --border: #2b2b2b;
+    --status: #007acc;
+    --fg: #cccccc;
+    --fg-dim: #858585;
+    --fg-mute: #6b6b6b;
+    --sel: #37373d;
+    --hover: #2a2d2e;
+    --focus: #007fd4;
+
+    /* Dark+ syntax */
+    --s-com: #6a9955;
+    --s-str: #ce9178;
+    --s-num: #b5cea8;
+    --s-ctl: #c586c0;
+    --s-kw: #569cd6;
+    --s-fn: #dcdcaa;
+    --s-var: #9cdcfe;
+    --s-const: #4fc1ff;
+    --s-pun: #d4d4d4;
+
+    --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+    --ui: -apple-system, "Segoe UI", "IBM Plex Sans KR", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--editor); color: var(--fg); }
+  body { font-family: var(--ui); font-size: 13px; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+  svg { display: block; }
+
+  .app { display: grid; grid-template-rows: 30px 1fr 22px; height: 100vh; height: 100dvh; }
+
+  /* ── Title bar ── */
+  .titlebar {
+    background: var(--title);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    padding: 0 12px; font-size: 12px; color: #bbbbbb;
+    border-bottom: 1px solid #252526;
+  }
+  .lights { display: flex; gap: 8px; }
+  .lights span { width: 12px; height: 12px; border-radius: 50%; }
+  .lights span:nth-child(1) { background: #ff5f57; }
+  .lights span:nth-child(2) { background: #febc2e; }
+  .lights span:nth-child(3) { background: #28c840; }
+  .titlebar .menu { display: flex; gap: 14px; margin-left: 18px; color: #a8a8a8; }
+  .titlebar .left { display: flex; align-items: center; }
+  .title-center {
+    background: #2a2a2a; border: 1px solid #454545; border-radius: 6px;
+    padding: 3px 60px; color: #a8a8a8;
+  }
+
+  /* ── Main area ── */
+  .main { display: grid; grid-template-columns: 48px 230px 1fr; min-height: 0; }
+
+  .activity {
+    background: var(--activity);
+    display: flex; flex-direction: column; align-items: center; padding-top: 4px;
+  }
+  .activity .ico {
+    width: 48px; height: 48px; display: grid; place-items: center;
+    color: #858585; border-left: 2px solid transparent;
+  }
+  .activity .ico.on { color: #ffffff; border-left-color: #ffffff; }
+  .activity .spacer { flex: 1; }
+
+  .sidebar { background: var(--sidebar); display: flex; flex-direction: column; min-height: 0; }
+  .side-head {
+    height: 35px; display: flex; align-items: center; padding: 0 20px;
+    font-size: 11px; letter-spacing: .5px; color: #bbbbbb;
+  }
+  .folder {
+    display: flex; align-items: center; gap: 4px; height: 22px; padding-left: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: .3px; color: #cccccc;
+  }
+  .files { overflow-y: auto; }
+  .file {
+    width: 100%; display: flex; align-items: center; gap: 6px;
+    height: 22px; padding-left: 24px; color: #cccccc; text-align: left;
+    border: 1px solid transparent;
+  }
+  .file:hover { background: var(--hover); }
+  .file.on { background: var(--sel); border-color: var(--focus); }
+  .js-ico {
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    color: #cbcb41; width: 16px; text-align: center;
+  }
+  .md-ico { font-family: var(--mono); font-size: 10px; color: #519aba; width: 16px; text-align: center; }
+  .side-section { margin-top: auto; border-top: 1px solid var(--border); }
+  .side-section .folder { height: 26px; }
+  .outline { padding: 4px 0 10px 24px; color: var(--fg-dim); font-size: 12px; line-height: 1.7; }
+
+  /* ── Editor column ── */
+  .editor-col { display: grid; grid-template-rows: 35px 22px 1fr auto; min-width: 0; min-height: 0; background: var(--editor); }
+
+  .tabs { background: var(--tabs); display: flex; align-items: stretch; }
+  .tab {
+    display: flex; align-items: center; gap: 6px; padding: 0 10px 0 12px;
+    background: var(--editor); color: #ffffff; border-top: 1px solid var(--focus);
+    border-right: 1px solid var(--border); white-space: nowrap;
+  }
+  .tab .x { color: #cccccc; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; }
+  .tab .x:hover { background: #3a3a3a; }
+  .tab.welcome { background: var(--tab-off); color: #969696; border-top-color: transparent; }
+  .tab-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+  .act {
+    width: 26px; height: 26px; display: grid; place-items: center;
+    color: #c5c5c5; border-radius: 5px; position: relative;
+  }
+  .act:hover { background: #3a3a3a; }
+  .act[data-tip]:hover::after {
+    content: attr(data-tip); position: absolute; top: 30px; right: 0;
+    background: #252526; border: 1px solid #454545; color: #cccccc;
+    padding: 3px 8px; font-size: 12px; white-space: nowrap; z-index: 5; border-radius: 3px;
+  }
+
+  .crumbs {
+    display: flex; align-items: center; gap: 4px; padding: 0 14px;
+    color: #a9a9a9; font-size: 12px;
+  }
+  .crumbs .sep { color: #6b6b6b; }
+
+  .code-wrap { overflow: auto; min-height: 0; padding-top: 4px; }
+  .code {
+    display: grid; grid-template-columns: 64px 1fr;
+    font-family: var(--mono); font-size: 15px; line-height: 23px;
+  }
+  .gutter { color: var(--fg-mute); text-align: right; padding-right: 26px; user-select: none; }
+  .gutter div.cur { color: #c6c6c6; }
+  .lines { white-space: pre; color: var(--s-pun); padding-right: 24px; }
+  .lines div { min-height: 23px; position: relative; }
+  .lines div.cur::before {
+    content: ""; position: absolute; inset: 0 -24px 0 -90px;
+    border-top: 1px solid #282828; border-bottom: 1px solid #282828; pointer-events: none;
+  }
+  .caret::after {
+    content: ""; display: inline-block; width: 2px; height: 18px; background: #aeafad;
+    vertical-align: -3px; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .t-com { color: var(--s-com); }
+  .t-str { color: var(--s-str); }
+  .t-num { color: var(--s-num); }
+  .t-ctl { color: var(--s-ctl); }
+  .t-kw  { color: var(--s-kw); }
+  .t-fn  { color: var(--s-fn); }
+  .t-var { color: var(--s-var); }
+  .t-const { color: var(--s-const); }
+  .t-ko  { font-family: var(--ui); }
+
+  /* ── Terminal panel ── */
+  .panel { border-top: 1px solid #414141; background: var(--panel); height: 210px; display: grid; grid-template-rows: 35px 1fr; }
+  .panel-tabs { display: flex; align-items: center; gap: 22px; padding: 0 18px; font-size: 11px; letter-spacing: .4px; color: #969696; }
+  .panel-tabs .on { color: #e7e7e7; border-bottom: 1px solid #e7e7e7; padding: 9px 0 7px; }
+  .term {
+    overflow-y: auto; padding: 4px 18px 10px;
+    font-family: var(--mono); font-size: 13px; line-height: 20px;
+  }
+  .term .out { color: #cccccc; white-space: pre-wrap; }
+  .term .ok { color: #23d18b; }
+  .term .info { color: var(--fg-dim); }
+  .term .sugg { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 2px 0 6px; }
+  .term .sugg button {
+    color: #3b8eea; font-family: var(--ui); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .term .sugg button:hover { color: #5ea4f0; }
+  .prompt { display: flex; align-items: center; gap: 8px; }
+  .prompt .path { color: #23d18b; white-space: nowrap; }
+  .prompt .cmd { color: #e5e510; white-space: nowrap; }
+  .prompt input {
+    flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+    color: #ffffff; font-family: var(--ui); font-size: 14px; caret-color: #ffffff;
+  }
+  .prompt input::placeholder { color: #5a5a5a; }
+
+  /* ── Status bar ── */
+  .statusbar {
+    background: var(--status); color: #ffffff; font-size: 12px;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 8px;
+  }
+  .statusbar .grp { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+  .statusbar .item { display: flex; align-items: center; gap: 4px; }
+
+  /* ── Wallpaper view ── */
+  .fs {
+    position: fixed; inset: 0; background: var(--editor);
+    display: none; align-items: center; justify-content: center; padding: 24px; z-index: 20; cursor: pointer;
+  }
+  .fs.show { display: flex; }
+  .fs pre { margin: 0; font-family: var(--mono); font-size: clamp(18px, 4.6vw, 30px); line-height: 1.5; color: var(--s-pun); white-space: pre; }
+  .fs .hint { position: absolute; bottom: 22px; left: 0; right: 0; text-align: center; color: #5a5a5a; font-size: 12px; }
+
+  .toast {
+    position: fixed; right: 16px; bottom: 34px; background: #252526; border: 1px solid #454545;
+    color: #cccccc; padding: 10px 14px; font-size: 13px; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    opacity: 0; transform: translateY(6px); transition: .18s; pointer-events: none; z-index: 30;
+  }
+  .toast.show { opacity: 1; transform: none; }
+
+  /* ── Small screens ── */
+  @media (max-width: 760px) {
+    .main { grid-template-columns: 1fr; }
+    .activity, .sidebar { display: none; }
+    .titlebar .menu, .title-center { display: none; }
+    .titlebar { grid-template-columns: 1fr; }
+    .code { font-size: 14px; grid-template-columns: 44px 1fr; }
+    .gutter { padding-right: 14px; }
+    .panel { height: 230px; }
+    .hide-sm { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="titlebar">
+    <div class="left">
+      <div class="lights"><span></span><span></span><span></span></div>
+      <div class="menu"><span>File</span><span>Edit</span><span>View</span><span>Terminal</span><span>Help</span></div>
+    </div>
+    <div class="title-center" id="winTitle">motto.js — life-motto</div>
+    <div></div>
+  </div>
+
+  <div class="main">
+    <nav class="activity" aria-hidden="true">
+      <div class="ico on">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H7a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/><path d="M3 7v13a1 1 0 0 0 1 1h10"/></svg>
+      </div>
+      <div class="ico">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/></svg>
+      </div>
+      <div class="ico">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-11.5 7.5"/></svg>
+      </div>
+      <div class="ico">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 4l12 8-12 8z"/></svg>
+      </div>
+      <div class="ico">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="14" y="3" width="7" height="7" transform="rotate(12 17.5 6.5)"/></svg>
+      </div>
+      <div class="spacer"></div>
+      <div class="ico">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg>
+      </div>
+    </nav>
+
+    <aside class="sidebar">
+      <div class="side-head">EXPLORER</div>
+      <div class="folder">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>
+        LIFE-MOTTO
+      </div>
+      <div class="files" id="files"></div>
+      <div class="side-section">
+        <div class="folder">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>
+          OUTLINE
+        </div>
+        <div class="outline">
+          파일을 누르면 그 카테고리에서<br>랜덤 코드가 열려요.
+        </div>
+      </div>
+    </aside>
+
+    <section class="editor-col">
+      <div class="tabs">
+        <div class="tab" id="tab">
+          <span class="js-ico">JS</span>
+          <span id="tabName">welcome.js</span>
+          <span class="x">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </span>
+        </div>
+        <div class="tab-actions">
+          <button class="act" id="again" data-tip="다른 버전">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 3v3.5H9.5"/><path d="M12.6 6.5A5 5 0 1 0 13 10"/></svg>
+          </button>
+          <button class="act" id="copy" data-tip="코드 복사">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5" y="5" width="8.5" height="8.5" rx="1"/><path d="M3 10.5V3.5a1 1 0 0 1 1-1h6.5"/></svg>
+          </button>
+          <button class="act" id="full" data-tip="배경화면으로 보기">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="crumbs">
+        <span>life-motto</span><span class="sep">›</span>
+        <span class="js-ico" style="width:auto">JS</span><span id="crumbFile">welcome.js</span>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code">
+          <div class="gutter" id="gutter"></div>
+          <div class="lines" id="lines"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-tabs">
+          <span class="hide-sm">PROBLEMS</span>
+          <span class="hide-sm">OUTPUT</span>
+          <span class="on">TERMINAL</span>
+        </div>
+        <div class="term" id="term">
+          <div class="out info">고민을 입력하고 Enter를 누르면 코드로 컴파일돼요.</div>
+          <div class="sugg" id="sugg"></div>
+          <div id="log"></div>
+          <form class="prompt" id="form" autocomplete="off">
+            <span class="path hide-sm">~/life-motto</span>
+            <span class="cmd">$ compile</span>
+            <input id="worry" maxlength="200" placeholder="오늘의 고민을 적어 보세요…" aria-label="고민 입력">
+          </form>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="statusbar">
+    <div class="grp">
+      <span class="item">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-4 2.5-6.5 4.5"/></svg>
+        main
+      </span>
+      <span class="item hide-sm">⊗ 0&nbsp;&nbsp;⚠ 0</span>
+    </div>
+    <div class="grp">
+      <span class="item" id="pos">Ln 1, Col 1</span>
+      <span class="item hide-sm">Spaces: 2</span>
+      <span class="item hide-sm">UTF-8</span>
+      <span class="item">{ } JavaScript</span>
+      <span class="item" id="cat">life</span>
+    </div>
+  </footer>
+</div>
+
+<div class="fs" id="fs">
+  <pre id="fsCode"></pre>
+  <div class="hint">화면을 누르면 닫혀요 · 스크린샷으로 배경화면 저장</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="codes.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
