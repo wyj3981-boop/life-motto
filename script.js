@@ -32,27 +32,35 @@
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const span = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
 
-  function highlightLine(line) {
+  // 한 줄을 [{ cls, text }] 토큰 목록으로 쪼갬 (화면 표시와 PNG 그리기에서 같이 사용)
+  function tokenize(line) {
     const re = /(\/\/.*)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g;
-    let out = "", last = 0, m;
+    const tokens = [];
+    let last = 0, m;
     while ((m = re.exec(line))) {
-      out += esc(line.slice(last, m.index));
-      if (m[1]) out += span("t-com", m[1]);
-      else if (m[2]) out += span("t-str", m[2]);
-      else if (m[3]) out += span("t-num", m[3]);
+      if (m.index > last) tokens.push({ cls: "", text: line.slice(last, m.index) });
+      let cls;
+      if (m[1]) cls = "t-com";
+      else if (m[2]) cls = "t-str";
+      else if (m[3]) cls = "t-num";
       else {
         const w = m[4];
         const next = line.slice(re.lastIndex).match(/^\s*(.)/);
-        let cls = "t-var";
+        cls = "t-var";
         if (CONTROL.has(w)) cls = "t-ctl";
         else if (KEYWORD.has(w)) cls = "t-kw";
         else if (w === "Infinity" || /^[A-Z][A-Z0-9_]+$/.test(w)) cls = "t-const";
         else if (next && next[1] === "(") cls = "t-fn";
-        out += span(cls, w);
       }
+      tokens.push({ cls, text: m[0] });
       last = re.lastIndex;
     }
-    return out + esc(line.slice(last));
+    if (last < line.length) tokens.push({ cls: "", text: line.slice(last) });
+    return tokens;
+  }
+
+  function highlightLine(line) {
+    return tokenize(line).map((t) => (t.cls ? span(t.cls, t.text) : esc(t.text))).join("");
   }
 
   // ───────── 에디터 ─────────
@@ -172,6 +180,68 @@ compile(yourWorry);`;
   });
   fs.addEventListener("click", () => fs.classList.remove("show"));
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") fs.classList.remove("show"); });
+
+  // ───────── 배경화면 PNG 저장 ─────────
+  const COLORS = {
+    "": "#d4d4d4", "t-com": "#6a9955", "t-str": "#ce9178", "t-num": "#b5cea8",
+    "t-ctl": "#c586c0", "t-kw": "#569cd6", "t-fn": "#dcdcaa", "t-var": "#9cdcfe", "t-const": "#4fc1ff",
+  };
+
+  async function renderWallpaper(code) {
+    const W = 1170, H = 2532; // 아이폰 화면 비율
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#1e1e1e";
+    ctx.fillRect(0, 0, W, H);
+
+    const rows = code.split("\n");
+    const longest = Math.max(...rows.map((r) => r.length), 1);
+    // 가장 긴 줄이 화면 폭의 약 80%에 들어가도록 글자 크기 결정
+    let size = Math.min(64, Math.floor((W * 0.8) / (longest * 0.6)));
+    const font = `500 ${size}px "JetBrains Mono", Menlo, monospace`;
+    try { await document.fonts.load(font); } catch {}
+    ctx.font = font;
+    ctx.textBaseline = "top";
+
+    const charW = ctx.measureText("M").width;
+    const lineH = Math.round(size * 1.5);
+    const blockW = longest * charW;
+    const x0 = Math.round((W - blockW) / 2);
+    const y0 = Math.round(H * 0.42 - (rows.length * lineH) / 2);
+
+    rows.forEach((row, i) => {
+      let x = x0;
+      for (const t of tokenize(row)) {
+        ctx.fillStyle = COLORS[t.cls] || COLORS[""];
+        ctx.fillText(t.text, x, y0 + i * lineH);
+        x += ctx.measureText(t.text).width;
+      }
+    });
+
+    return new Promise((res) => canvas.toBlob(res, "image/png"));
+  }
+
+  async function saveWallpaper() {
+    if (!lastCode) return;
+    const blob = await renderWallpaper(lastCode);
+    if (!blob) { notify("이미지를 만들지 못했어요"); return; }
+    const file = new File([blob], "life-motto.png", { type: "image/png" });
+
+    // 휴대폰: 공유 시트로 열어서 '이미지 저장' 가능
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      try { await navigator.share({ files: [file] }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "life-motto.png";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    notify("배경화면 이미지를 저장했어요");
+  }
+
+  $("save").addEventListener("click", saveWallpaper);
 
   // 시작 화면
   openFile("welcome.js", "life", WELCOME, false);
